@@ -142,7 +142,7 @@ enum {
 };
 
 const char* kUrlGlvnd   = "https://github.com/X547/nvidia-haiku/releases/download/v0.0.1/libglvnd-1.7.0-4-x86_64.hpkg";
-const char* kUrlNebula2 = "https://github.com/X547/nvidia-haiku/releases/download/v0.0.2/nebula-0.0.2-1.x86_64.hpkg";
+const char* kUrlNebula2 = "https://github.com/ablyssx74/nvidia-haiku/releases/download/v9/nebula-0.0.2-22-x86_64.hpkg";
 
 class DriverToggleWindow : public BWindow {
 public:
@@ -318,13 +318,13 @@ private:
         system("mkdir -p /tmp/nebula_setup");
 
         const char* downloadsGlvnd = "/boot/home/Downloads/libglvnd-1.7.0-4-x86_64.hpkg";
-        const char* downloadsNebula = "/boot/home/Downloads/nebula-0.0.2-1.x86_64.hpkg";
+        const char* downloadsNebula = "/boot/home/Downloads/nebula-0.0.2-22-x86_64.hpkg";
 
         const char* tmpGlvnd = "/tmp/libglvnd-1.7.0-4-x86_64.hpkg";
         const char* tmpNebula = "/tmp/nebula-0.0.2-1.x86_64.hpkg";
 
         const char* hashGlvnd = "0a4dba881e0a3c3f60a82cef84b7668a919569d8d880ee9011855b8539cb355b";
-        const char* hashNebula = "2b9ba0fc817143502670073283f06d160e71aedeb101ab47616147641f51e763";
+        const char* hashNebula = "8eeb247bbbcdb1064cfb0687caed0152828bdddbce8c619a1f6a99d7de016303";
 
         BString activeGlvndPath;
         BString activeNebulaPath;
