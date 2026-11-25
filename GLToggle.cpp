@@ -1,5 +1,5 @@
 /*
- * Copyright 2026, ablyss GLToogle@epluribusunix.net
+ * Copyright 2026, ablyss GLToggle@epluribusunix.net
  * All rights reserved. Distributed under the terms of the MIT license.
  */
 
@@ -10,8 +10,18 @@
 #include <Button.h>
 #include <StatusBar.h>
 #include <StringView.h>
+#include <GroupView.h>
 #include <String.h>
 #include <LayoutBuilder.h>
+#include <CheckBox.h>
+#include <FindDirectory.h>
+#include <Path.h>
+#include <Directory.h>
+#include <vector>
+#include <set>
+#include <fstream>
+#include <sstream>
+#include <cstdio>
 #include <Alert.h>
 #include <sys/stat.h>
 #include <stdlib.h>
@@ -23,7 +33,7 @@
 
 
 namespace AppInfo {
-	static const char* const APP_NAME = "GLToogle";
+	static const char* const APP_NAME = "GLToggle";
     // (the version comes from the VERSION file: the Makefile passes it in)
 #ifndef APP_LOCAL_VERSION
 #error "APP_LOCAL_VERSION is not set: build with the Makefile, which takes it from the VERSION file"
@@ -45,7 +55,7 @@ static int32 BackgroundUpdateChecker(void* data) {
 
     printf("[UpdateChecker] Asynchronous curl update checker running...\n");
 
-    const char* targetUrl = "https://raw.githubusercontent.com/ablyssx74/GLtoogle/refs/heads/main/VERSION";
+    const char* targetUrl = "https://raw.githubusercontent.com/ablyssx74/GLToggle/refs/heads/main/VERSION";
 
     std::string responseBuffer;
 
@@ -54,7 +64,7 @@ static int32 BackgroundUpdateChecker(void* data) {
         curl_easy_setopt(curl, CURLOPT_URL, targetUrl);
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBuffer);
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, "GLToogle-UpdateChecker/1.0");
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "GLToggle-UpdateChecker/1.0");
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_perform(curl);
@@ -113,7 +123,7 @@ static int32 BackgroundUpdateChecker(void* data) {
 			    updateAlert.SetTitle("Update Available");
 			    
 			    BString alertContent;
-			    // Added spaces around currentAppStr so it reads: "of GLToogle is available!"
+			    // Added spaces around currentAppStr so it reads: "of GLToggle is available!"
 			    alertContent << "A newer version of " << currentAppStr << " is available! (" << remoteVersionStr << ")";
 			    updateAlert.SetContent(alertContent.String());
 			    
@@ -132,14 +142,99 @@ static int32 BackgroundUpdateChecker(void* data) {
 
 
 
-const char* kAppSignature = "application/x-vnd.gltoogle"; 
+const char* kAppSignature = "application/x-vnd.gltoggle"; 
 
 enum {
     MSG_UPDATE_PROGRESS = 'uprg',
     MSG_TASK_FINISHED   = 'tfsh',
     MSG_INSTALL_BASE    = 'inst',
-    MSG_INSTALL_NEBULA  = 'ineb'
+    MSG_INSTALL_NEBULA  = 'ineb',
+    MSG_DEV_TOGGLE      = 'devt'
 };
+
+// =============================================================================
+// Dev packages that are put back when the Mesa libs are restored
+// =============================================================================
+// Nebula (libglvnd) replaces Mesa, and the development packages that depend on Mesa
+// go with it. Each one has a check box; the choice is kept in the settings file
+// (~/config/settings/GLToggle/settings, one "package on|off" line each) so the next
+// start of the program has the same boxes. Packages that Nebula removes from the
+// system are added to the list when it is installed.
+struct DevPackage {
+    std::string name;
+    bool        on;
+};
+
+static std::vector<DevPackage> gDevPackages;
+
+static BString SettingsFilePath()
+{
+    BPath path;
+    if (find_directory(B_USER_SETTINGS_DIRECTORY, &path, true) != B_OK) return BString();
+    path.Append("GLToggle");
+    create_directory(path.Path(), 0755);
+    path.Append("settings");
+    return BString(path.Path());
+}
+
+static void AddDevPackage(const std::string& name, bool on)
+{
+    for (const DevPackage& d : gDevPackages) if (d.name == name) return;
+    gDevPackages.push_back({name, on});
+}
+
+static void LoadDevPackages()
+{
+    gDevPackages.clear();
+    // the ones that were always installed with the Mesa libs
+    AddDevPackage("glu_devel", true);
+    AddDevPackage("glew_devel", true);
+    AddDevPackage("mpv_devel", true);
+
+    BString path = SettingsFilePath();
+    if (path.Length() == 0) return;
+    std::ifstream in(path.String());
+    std::string line;
+    while (std::getline(in, line)) {
+        std::istringstream ls(line);
+        std::string name, state;
+        if (!(ls >> name >> state)) continue;
+        bool on = (state != "off");
+        bool found = false;
+        for (DevPackage& d : gDevPackages)
+            if (d.name == name) { d.on = on; found = true; }
+        if (!found) gDevPackages.push_back({name, on});
+    }
+}
+
+static void SaveDevPackages()
+{
+    BString path = SettingsFilePath();
+    if (path.Length() == 0) return;
+    std::ofstream out(path.String(), std::ios::trunc);
+    for (const DevPackage& d : gDevPackages)
+        out << d.name << ' ' << (d.on ? "on" : "off") << '\n';
+}
+
+// the names of the installed development packages (the ones named *_devel)
+static std::set<std::string> InstalledDevPackages()
+{
+    std::set<std::string> names;
+    FILE* f = popen("ls /packages 2>/dev/null", "r");
+    if (f == nullptr) return names;
+    char buf[512];
+    while (fgets(buf, sizeof(buf), f) != nullptr) {
+        std::string n(buf);
+        while (!n.empty() && (n.back() == '\n' || n.back() == '\r')) n.pop_back();
+        // "mpv_devel-0.41.0-4" -> "mpv_devel": the name ends before the first "-<digit>"
+        for (size_t i = 0; i + 1 < n.size(); i++) {
+            if (n[i] == '-' && n[i + 1] >= '0' && n[i + 1] <= '9') { n.resize(i); break; }
+        }
+        if (n.size() > 6 && n.compare(n.size() - 6, 6, "_devel") == 0) names.insert(n);
+    }
+    pclose(f);
+    return names;
+}
 
 const char* kUrlGlvnd   = "https://github.com/X547/nvidia-haiku/releases/download/v0.0.1/libglvnd-1.7.0-4-x86_64.hpkg";
 const char* kUrlNebula2 = "https://github.com/ablyssx74/nvidia-haiku/releases/download/v9/nebula-0.0.2-22-x86_64.hpkg";
@@ -160,6 +255,8 @@ public:
         fStatusBar->Hide();
 
         fActionBtn = new BButton("action_btn", "Evaluating State...", new BMessage(MSG_INSTALL_NEBULA));
+        LoadDevPackages();
+        fDevBox = new BGroupView(B_VERTICAL, 0);
         fStatusLabel->SetExplicitMinSize(BSize(540.0, B_SIZE_UNSET));
 
         BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
@@ -167,6 +264,8 @@ public:
                 .SetInsets(B_USE_WINDOW_INSETS)
                 .Add(fStatusLabel)
                 .Add(fStatusBar)
+                .Add(fDevLabel = new BStringView("dev_label", "Put these development packages back with the Mesa libs:"))
+                .Add(fDevBox)
                 .AddGlue()
                 .AddGroup(B_HORIZONTAL, B_USE_ITEM_SPACING)
                     .AddGlue()
@@ -185,6 +284,7 @@ public:
         // =========================================================================
 
         CenterOnScreen();
+        _RebuildDevBoxes();
         _UpdateDriverStatus();
     }
 
@@ -211,14 +311,37 @@ public:
                 break;
             }
 
+            case MSG_DEV_TOGGLE: {
+                const char* name;
+                int32 value;
+                if (message->FindString("pkg", &name) == B_OK && message->FindInt32("be:value", &value) == B_OK) {
+                    for (DevPackage& d : gDevPackages)
+                        if (d.name == name) d.on = (value == B_CONTROL_ON);
+                    SaveDevPackages();
+                }
+                break;
+            }
+
             case MSG_TASK_FINISHED: {
                 const char* completionMsg = message->FindString("msg");
+                // development packages that Nebula took away: they get a check box
+                const char* removedName;
+                bool added = false;
+                for (int32 i = 0; message->FindString("removed", i, &removedName) == B_OK; i++) {
+                    AddDevPackage(removedName, true);
+                    added = true;
+                }
+                if (added) {
+                    SaveDevPackages();
+                    _RebuildDevBoxes();
+                }
                 
                 fStatusBar->Update(100.0 - fStatusBar->CurrentValue(), NULL, completionMsg);
                 snooze(500000); 
                 fStatusBar->Hide();
                 
                 fActionBtn->SetEnabled(true);
+                _RebuildDevBoxes();
                 _UpdateDriverStatus();
 
                 BNotification notification(B_INFORMATION_NOTIFICATION);
@@ -232,7 +355,9 @@ public:
 
             case MSG_INSTALL_BASE: {
                 _LockControls("Initiating Driver Uninstallation Sequence...");
-                std::thread worker(&DriverToggleWindow::_WorkerBaseMesaStack, this);
+                std::vector<std::string> chosen;
+                for (const DevPackage& d : gDevPackages) if (d.on) chosen.push_back(d.name);
+                std::thread worker(&DriverToggleWindow::_WorkerBaseMesaStack, this, chosen);
                 worker.detach();
                 break;
             }
@@ -251,10 +376,48 @@ public:
     }
 
 private:
+    // one check box per development package, two on a line
+    void _RebuildDevBoxes() {
+        while (fDevBox->CountChildren() > 0) {
+            BView* child = fDevBox->ChildAt(0);
+            fDevBox->RemoveChild(child);
+            delete child;
+        }
+        BGroupView* row = nullptr;
+        int column = 0;
+        for (const DevPackage& d : gDevPackages) {
+            if (column == 0) {
+                row = new BGroupView(B_HORIZONTAL, B_USE_ITEM_SPACING);
+                fDevBox->AddChild(row);
+            }
+            BMessage* msg = new BMessage(MSG_DEV_TOGGLE);
+            msg->AddString("pkg", d.name.c_str());
+            BCheckBox* box = new BCheckBox(d.name.c_str(), d.name.c_str(), msg);
+            box->SetValue(d.on ? B_CONTROL_ON : B_CONTROL_OFF);
+            box->SetTarget(this);
+            box->SetExplicitMinSize(BSize(250, B_SIZE_UNSET));
+            row->AddChild(box);
+            column = (column + 1) % 2;
+        }
+        InvalidateLayout();
+    }
+
     void _LockControls(const char* initialLabel) {
         fStatusBar->Reset(initialLabel);
         fStatusBar->Show();
         fActionBtn->SetEnabled(false); 
+        _SetDevVisible(false);
+    }
+
+    // The development package boxes belong to "Restore Base Mesa Libs", so they
+    // are only there while the Nebula stack is active; with Mesa active they would
+    // only suggest that something is installed back when Nebula goes on.
+    // (Hide and Show of a view count, so this is called with the state wanted.)
+    void _SetDevVisible(bool visible) {
+        if (visible == fDevVisible) return;
+        fDevVisible = visible;
+        if (visible) { fDevLabel->Show(); fDevBox->Show(); }
+        else         { fDevLabel->Hide(); fDevBox->Hide(); }
     }
 
 
@@ -265,9 +428,11 @@ private:
         PostMessage(&msg);
     }
 
-    void _PostTaskFinished(const char* completionAlertText, bool isError = false) {
+    void _PostTaskFinished(const char* completionAlertText, bool isError = false,
+                           const std::vector<std::string>& removed = std::vector<std::string>()) {
         BMessage msg(MSG_TASK_FINISHED);
         msg.AddString("msg", completionAlertText);
+        for (const std::string& r : removed) msg.AddString("removed", r.c_str());
         msg.AddBool("is_error", isError); 
         PostMessage(&msg);
     }
@@ -281,22 +446,35 @@ private:
             fActionBtn->SetLabel("Restore Base Mesa Libs");
             fActionBtn->SetMessage(new BMessage(MSG_INSTALL_BASE));
             fActionBtn->SetEnabled(true);
+            _SetDevVisible(true);
         } else {
             fStatusLabel->SetText("Current State: Base Haiku Mesa Libs Active");            
             fActionBtn->SetLabel("Install NVIDIA Nebula Driver");
             fActionBtn->SetMessage(new BMessage(MSG_INSTALL_NEBULA));
             fActionBtn->SetEnabled(true);
+            _SetDevVisible(false);
         }
         
         InvalidateLayout();
     }
 
-    void _WorkerBaseMesaStack() {
+    void _WorkerBaseMesaStack(std::vector<std::string> devPackages) {
         _PostProgressUpdate(15.0, "Safely stripping NVIDIA Nebula modules...");
         system("pkgman uninstall -y nebula");
         
         _PostProgressUpdate(30.0, "Deploying baseline software fallback dependencies...");
-        system("pkgman install -y mesa_devel glu_devel mesa_swpipe mesa_lavapipe glew_devel mpv_devel");
+        system("pkgman install -y mesa_devel mesa_swpipe mesa_lavapipe");
+
+        // the development packages that were ticked, one at a time: a package that
+        // is not there any more must not stop the others
+        for (const std::string& name : devPackages) {
+            BString status;
+            status.SetToFormat("Installing %s...", name.c_str());
+            _PostProgressUpdate(0.0, status.String());
+            BString cmd;
+            cmd.SetToFormat("pkgman install -y %s", name.c_str());
+            system(cmd.String());
+        }
         
         _PostProgressUpdate(30.0, "Removing libglvnd infrastructure...");
         system("pkgman uninstall -y libglvnd");
@@ -316,6 +494,7 @@ private:
 
     void _WorkerNebulaStack() {
         system("mkdir -p /tmp/nebula_setup");
+        std::set<std::string> develBefore = InstalledDevPackages();
 
         const char* downloadsGlvnd = "/boot/home/Downloads/libglvnd-1.7.0-4-x86_64.hpkg";
         const char* downloadsNebula = "/boot/home/Downloads/nebula-0.0.2-22-x86_64.hpkg";
@@ -395,7 +574,12 @@ private:
         installNebulaCmd.SetToFormat("pkgman install -y %s", activeNebulaPath.String());
         system(installNebulaCmd.String());
         
-        _PostTaskFinished("Successfully initialized NVIDIA Nebula graphics drivers from official repository.");
+        // the development packages that are gone now get a check box
+        std::set<std::string> develAfter = InstalledDevPackages();
+        std::vector<std::string> removed;
+        for (const std::string& n : develBefore)
+            if (develAfter.find(n) == develAfter.end()) removed.push_back(n);
+        _PostTaskFinished("Successfully initialized NVIDIA Nebula graphics drivers from official repository.", false, removed);
     }
 
 
@@ -403,6 +587,9 @@ private:
     BStringView*     fStatusLabel;
     BStatusBar*      fStatusBar;
     BButton*         fActionBtn; 
+    BStringView*     fDevLabel;
+    BGroupView*      fDevBox;
+    bool             fDevVisible = true;
 };
 
 class DriverToggleApp : public BApplication {

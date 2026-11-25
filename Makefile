@@ -1,6 +1,6 @@
 SHELL := /bin/bash
-TARGET = GLToogle
-SUMMARY = GLToogle Nvidia\/Mesa Switcher
+TARGET = GLToggle
+SUMMARY = GLToggle Nvidia\/Mesa Switcher
 DESCRIPTION = Toggles Haiku Mesa and Nebula Drivers  
 AUTHOR = ablyss
 LICENSE = MIT
@@ -54,7 +54,7 @@ endif
 	rc -o $@ $*.version.rdef
 
 # The version is compiled in: a new VERSION means a new build of the file that shows it
-GLToogle.o: VERSION
+GLToggle.o: VERSION
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@

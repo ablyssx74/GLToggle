@@ -1,6 +1,6 @@
-# GLToogle
+# GLToggle
 
-GLtoogle Nvidia/Mesa Switcher
+GLToggle Nvidia/Mesa Switcher
 - Toggles Haiku Mesa and Nebula Drivers 
 
 Supports 64 bit builds
